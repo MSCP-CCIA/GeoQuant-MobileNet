@@ -1,43 +1,43 @@
 # Impacto de la Cuantización INT8 en la Topología de Espacios Latentes
 
-Este repositorio contiene la arquitectura experimental para la tesis de grado enfocada en la evaluación multiobjetivo (Frente de Pareto 3D) de modelos de Deep Learning comprimidos. Se analiza el impacto de la metodología de cuantización (**PTQ** y **QAT**) y su granularidad (**Per-tensor** vs. **Per-channel**) sobre la integridad topológica del espacio latente y la eficiencia en hardware x86.
+Este repositorio contiene el framework experimental para la investigación titulada: "Impacto de la Metodología y Granularidad de Cuantización INT8 sobre la Representación Latente y Eficiencia Computacional en Redes Convolucionales Ligeras". El objetivo central es el análisis multiobjetivo mediante la construcción de un Frente de Pareto 3D que relacione la precisión predictiva, la eficiencia en hardware y la integridad topológica del modelo comprimido.
 
-## 🔬 Objetivo Científico
-Evaluar simultáneamente tres ejes críticos en arquitecturas de redes convolucionales ligeras (*MobileNetV3*, *ShuffleNetV2*):
-1.  **Accuracy (Top-1):** Rendimiento predictivo bajo cuantización INT8.
-2.  **Eficiencia Computacional:** Latencia de inferencia medida en milisegundos (ms) sobre arquitectura CPU x86.
-3.  **Integridad Topológica (Índice S):** Medida de separabilidad en el espacio latente calculada mediante distancias de coseno normalizadas $L_2$.
+## Objetivo Científico
+La investigación evalúa simultáneamente tres métricas críticas en arquitecturas convolucionales de baja latencia (MobileNetV3 y ShuffleNetV2):
+1.  **Exactitud (Top-1 Accuracy):** Evaluación del rendimiento predictivo tras la reducción de precisión a 8 bits.
+2.  **Eficiencia Computacional (Latencia):** Tiempo de inferencia medido en milisegundos (ms) sobre arquitectura CPU x86 (Intel/AMD).
+3.  **Integridad Topológica (Índice S):** Cuantificación de la separabilidad en el espacio latente mediante distancias de coseno con normalización L2.
 
-## 🏗️ Arquitectura del Proyecto
-Diseño modular para facilitar la experimentación científica:
+## Arquitectura del Sistema
+El proyecto se estructura de forma modular para garantizar la reproducibilidad científica:
 
-- `src/quantization/`: Orquestación de `torch.ao.quantization` (PTQ/QAT).
-- `src/topology/`: Extracción segura de tensores vía **Forward Hooks** y cálculo algebraico vectorizado del Índice S.
-- `src/models/`: Factoría de modelos ligeros con soporte para fusión de capas.
-- `src/utils/`: Benchmarking de latencia CPU y registro de métricas Pareto.
-- `data/`: Dataloaders optimizados para no saturar 16GB de RAM durante la extracción masiva de embeddings.
+- **src/quantization/**: Implementación de flujos de cuantización PTQ y QAT utilizando el motor torch.ao.quantization.
+- **src/topology/**: Módulos de extracción de características mediante Forward Hooks y cálculo del Índice S.
+- **src/models/**: Factory de modelos para la carga de pesos FP32 y fusión de capas (Conv-BN-ReLU).
+- **src/utils/**: Utilidades de benchmarking de latencia y gestión de logs experimentales.
+- **data/**: Dataloaders optimizados para el cumplimiento de restricciones de memoria RAM (16GB).
 
-## 🚀 Configuración del Entorno
-Este proyecto utiliza **uv** (Astral) como gestor de dependencias y entornos.
+## Configuración del Entorno de Investigación
+La gestión de dependencias y entornos virtuales se realiza exclusivamente mediante **uv** (Astral).
 
-### Requisitos Previos
-- Python 3.9+
-- Arquitectura CPU x86 (Target de inferencia)
-- GPU (Opcional, solo para entrenamiento/QAT)
+### Requisitos del Sistema
+- Python 3.9 o superior.
+- Arquitectura CPU x86 (Target de inferencia INT8).
+- GPU con 8GB VRAM (Requerida únicamente para la fase de entrenamiento QAT).
 
-### Instalación
+### Instalación y Ejecución
+Para inicializar el entorno y sincronizar las dependencias definidas en pyproject.toml:
 ```bash
-# Sincronizar entorno y dependencias
 uv sync
+```
 
-# Ejecutar evaluación experimental
+Para ejecutar el pipeline de evaluación multiobjetivo:
+```bash
 uv run evaluate_pareto.py
 ```
 
-## 🛠️ Restricciones de Hardware
-- **RAM:** 16 GB Total (Manejado mediante generadores de datos).
-- **CPU:** Target de latencia INT8 (x86).
-- **GPU:** 8 GB VRAM (Uso exclusivo en carga FP32 y fase QAT).
+## Gestión de Datos y Versionamiento
+Este proyecto implementa **DVC** (Data Version Control) para el manejo de activos binarios en `data/raw` y `data/processed`, utilizando Google Drive como almacenamiento remoto.
 
-## 📄 Licencia
-Este proyecto se distribuye bajo la licencia MIT.
+## Licencia
+Este software se distribuye bajo la licencia MIT.
