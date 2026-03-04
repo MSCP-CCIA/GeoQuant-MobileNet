@@ -1,0 +1,49 @@
+# Configuración Base: Tesis Cuantización INT8 y Topología Latente
+
+project:
+  name: "FaceQuant-Biometric-Robustness" # Mantenido por consistencia de repo, objetivo actualizado.
+  experiment_version: "v1.0-topology-evaluation"
+
+hardware:
+  device_training: "cuda"  # 8GB VRAM para QAT
+  device_inference: "cpu"  # Target: x86 Intel/AMD para métricas de latencia INT8
+  num_workers: 4           # Optimizado para 16GB RAM
+
+datasets:
+  - name: "imagenet-1k-subset"
+    path: "./data/raw/imagenet"
+    purpose: "calibration_and_val"
+    batch_size: 32
+  - name: "cifar10"
+    path: "./data/raw/cifar10"
+    purpose: "topology_robustness"
+    batch_size: 64
+
+storage:
+  remote_type: "gdrive"
+  data_versioning: "dvc"
+  raw_dir: "./data/raw"
+  processed_dir: "./data/processed"
+
+model:
+  architectures: 
+    - "mobilenet_v3_small"
+    - "shufflenet_v2_x1_0"
+  pretrained: true
+  layer_hook: "avgpool"    # Capa objetivo para la extracción del espacio latente
+
+quantization:
+  engine: "torch.ao.quantization"
+  backend: "x86"           # fbgemm para Intel/AMD x86
+  approaches:
+    - "ptq"                # Post-Training Quantization
+    - "qat"                # Quantization-Aware Training
+  granularity:
+    - "per_tensor"
+    - "per_channel"
+  calibration_batches: 50  # Número de batches para calibración estadística (PTQ)
+
+topology:
+  metric: "cosine_similarity"
+  normalization: "L2"
+  compute_precision: "float64" # Para evitar errores de redondeo en el Índice S

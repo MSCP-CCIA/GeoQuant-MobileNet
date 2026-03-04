@@ -1,76 +1,43 @@
-# FaceQuant-Biometric-Robustness
+# Impacto de la Cuantización INT8 en la Topología de Espacios Latentes
 
-## Project Structure
+Este repositorio contiene la arquitectura experimental para la tesis de grado enfocada en la evaluación multiobjetivo (Frente de Pareto 3D) de modelos de Deep Learning comprimidos. Se analiza el impacto de la metodología de cuantización (**PTQ** y **QAT**) y su granularidad (**Per-tensor** vs. **Per-channel**) sobre la integridad topológica del espacio latente y la eficiencia en hardware x86.
 
-Este proyecto sigue una arquitectura modular diseñada para investigación en visión artificial y sistemas embebidos. A continuación se detalla la función de cada componente:
+## 🔬 Objetivo Científico
+Evaluar simultáneamente tres ejes críticos en arquitecturas de redes convolucionales ligeras (*MobileNetV3*, *ShuffleNetV2*):
+1.  **Accuracy (Top-1):** Rendimiento predictivo bajo cuantización INT8.
+2.  **Eficiencia Computacional:** Latencia de inferencia medida en milisegundos (ms) sobre arquitectura CPU x86.
+3.  **Integridad Topológica (Índice S):** Medida de separabilidad en el espacio latente calculada mediante distancias de coseno normalizadas $L_2$.
 
-```text
-D:\FaceQuant-Biometric-Robustness\
-├── configs/                # Configuración centralizada
-│   └── config.yaml         # Hiperparámetros, rutas y ajustes de hardware (CPU/GPU)
-│
-├── data/                   # Gestión de Datos (Ignorado en git)
-│   ├── raw/                # Datasets originales comprimidos o sin procesar (CASIA, LFW)
-│   ├── processed/          # Datos listos para entrenamiento (alineados, tensores)
-│   └── scripts/            # Scripts utilitarios para descarga y preparación de datos
-│
-├── notebooks/              # Experimentación y Exploración
-│   └── ...                 # Jupyter notebooks para prototipado rápido y visualización
-│
-├── src/                    # Código Fuente Principal (Paquete Python)
-│   ├── data/               # Lógica de carga de datos
-│   │   ├── __init__.py
-│   │   └── ...             # Dataloaders personalizados y transformaciones
-│   │
-│   ├── models/             # Arquitecturas de Modelos
-│   │   ├── __init__.py
-│   │   └── ...             # Definiciones de MobileNetV3, ResNet18, ArcFace
-│   │
-│   ├── quantization/       # Motor de Cuantización
-│   │   ├── __init__.py
-│   │   └── ...             # Lógica para PTQ (Post-Training Quantization) y FX Graph
-│   │
-│   └── utils/              # Herramientas Auxiliares
-│       ├── __init__.py
-│       └── ...             # Métricas (EER), logs, visualización
-│
-├── tests/                  # Pruebas Unitarias e Integración
-│   └── ...                 # Tests para validar componentes críticos
-│
-├── .env                    # Variables de entorno (Rutas locales, API Keys) - NO COMITEAR
-├── .gitignore              # Archivos y carpetas excluidos del control de versiones
-├── pyproject.toml          # Configuración del proyecto Python
-├── README.md               # Documentación general
-└── requirements.txt        # Dependencias del proyecto (pip)
+## 🏗️ Arquitectura del Proyecto
+Diseño modular para facilitar la experimentación científica:
+
+- `src/quantization/`: Orquestación de `torch.ao.quantization` (PTQ/QAT).
+- `src/topology/`: Extracción segura de tensores vía **Forward Hooks** y cálculo algebraico vectorizado del Índice S.
+- `src/models/`: Factoría de modelos ligeros con soporte para fusión de capas.
+- `src/utils/`: Benchmarking de latencia CPU y registro de métricas Pareto.
+- `data/`: Dataloaders optimizados para no saturar 16GB de RAM durante la extracción masiva de embeddings.
+
+## 🚀 Configuración del Entorno
+Este proyecto utiliza **uv** (Astral) como gestor de dependencias y entornos.
+
+### Requisitos Previos
+- Python 3.9+
+- Arquitectura CPU x86 (Target de inferencia)
+- GPU (Opcional, solo para entrenamiento/QAT)
+
+### Instalación
+```bash
+# Sincronizar entorno y dependencias
+uv sync
+
+# Ejecutar evaluación experimental
+uv run evaluate_pareto.py
 ```
 
-## Configuración Inicial
+## 🛠️ Restricciones de Hardware
+- **RAM:** 16 GB Total (Manejado mediante generadores de datos).
+- **CPU:** Target de latencia INT8 (x86).
+- **GPU:** 8 GB VRAM (Uso exclusivo en carga FP32 y fase QAT).
 
-Este proyecto utiliza **uv** para la gestión de dependencias y entornos virtuales de forma centralizada en `pyproject.toml`.
-
-1.  **Instalación de uv:**
-    Si aún no tienes `uv` instalado:
-    ```bash
-    # Con pip
-    pip install uv
-    
-    # O ver documentación oficial para otros métodos: https://docs.astral.sh/uv/
-    ```
-
-2.  **Instalación del Entorno y Dependencias:**
-    Ejecuta el siguiente comando para crear el entorno virtual (`.venv`) e instalar todas las dependencias definidas en `pyproject.toml` de una sola vez:
-    ```bash
-    uv sync
-    ```
-    
-    Activar el entorno:
-    ```bash
-    # Windows
-    .venv\Scripts\activate
-    
-    # Linux/macOS
-    source .venv/bin/activate
-    ```
-
-3.  **Variables de Entorno:**
-    Revisar el archivo `.env` para ajustar las rutas de datos según tu sistema.
+## 📄 Licencia
+Este proyecto se distribuye bajo la licencia MIT.
