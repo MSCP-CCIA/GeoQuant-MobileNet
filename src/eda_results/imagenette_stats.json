@@ -1,0 +1,64 @@
+{
+    "Distribucion_Canales": {
+        "Red": {
+            "mean": 0.46551045775413513,
+            "std": 0.23777228593826294,
+            "min": 0.0,
+            "max": 1.0
+        },
+        "Green": {
+            "mean": 0.4546201527118683,
+            "std": 0.23082615435123444,
+            "min": 0.0,
+            "max": 1.0
+        },
+        "Blue": {
+            "mean": 0.4250600039958954,
+            "std": 0.23774456977844238,
+            "min": 0.0,
+            "max": 1.0
+        }
+    },
+    "Dispersion_Intra_Clase": {
+        "tench": {
+            "distancia_media_al_centroide": 25.730199813842773,
+            "desviacion_estandar_distancia": 6.117978572845459
+        },
+        "English springer": {
+            "distancia_media_al_centroide": 26.4055233001709,
+            "desviacion_estandar_distancia": 5.865483283996582
+        },
+        "cassette player": {
+            "distancia_media_al_centroide": 32.87031936645508,
+            "desviacion_estandar_distancia": 6.149411678314209
+        },
+        "chain saw": {
+            "distancia_media_al_centroide": 28.873849868774414,
+            "desviacion_estandar_distancia": 8.339323997497559
+        },
+        "church": {
+            "distancia_media_al_centroide": 27.618967056274414,
+            "desviacion_estandar_distancia": 6.101462364196777
+        },
+        "French horn": {
+            "distancia_media_al_centroide": 29.73232078552246,
+            "desviacion_estandar_distancia": 8.348319053649902
+        },
+        "garbage truck": {
+            "distancia_media_al_centroide": 28.10732650756836,
+            "desviacion_estandar_distancia": 5.050038814544678
+        },
+        "gas pump": {
+            "distancia_media_al_centroide": 27.992116928100586,
+            "desviacion_estandar_distancia": 5.516490936279297
+        },
+        "golf ball": {
+            "distancia_media_al_centroide": 28.13899040222168,
+            "desviacion_estandar_distancia": 8.189820289611816
+        },
+        "parachute": {
+            "distancia_media_al_centroide": 25.2973575592041,
+            "desviacion_estandar_distancia": 7.677361965179443
+        }
+    }
+}
