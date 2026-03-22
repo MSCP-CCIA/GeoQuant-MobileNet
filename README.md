@@ -79,7 +79,7 @@ Los resultados (Figura 2) demuestran una transformación radical del espacio de 
 
 El desarrollo de estos *baselines* permite concluir que un alto rendimiento en precisión (Accuracy) no garantiza un espacio latente estructurado o seguro. Mientras que el entrenamiento estándar produce fronteras frágiles ($S_{sep} = 0.76$), la optimización con funciones de pérdida topológicas como ArcFace blinda el modelo construyendo clústeres fuertemente separados ($S_{sep} = 1.42$).
 
-El trabajo futuro se centrará en someter estos dos modelos (el frágil y el robusto) a **Cuantización Post-Entrenamiento (PTQ) a INT8**. La hipótesis empírica dictamina que el modelo optimizado con ArcFace absorberá el ruido de compresión sin degradación catastrófica, demostrando que el $S_{sep}$ es un predictor fiable de la viabilidad de un modelo para su despliegue en hardware restringido.
+El trabajo futuro se centrará en someter estos dos modelos (el frágil y el robusto) a **Cuantización Post-Entrenamiento (PTQ) a INT8** y **QAT**. La hipótesis empírica dictamina que el modelo optimizado con ArcFace absorberá el ruido de compresión sin degradación catastrófica, demostrando que el $S_{sep}$ es un predictor fiable de la viabilidad de un modelo para su despliegue en hardware restringido.
 
 ## Licencia
 Este software se distribuye bajo la licencia MIT.

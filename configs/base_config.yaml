@@ -28,7 +28,6 @@ storage:
 model:
   architectures: 
     - "mobilenet_v3_small"
-    - "shufflenet_v2_x1_0"
   pretrained: true
   layer_hook: "avgpool"    # Capa objetivo para la extracción del espacio latente
 
@@ -37,10 +36,7 @@ quantization:
   backend: "x86"           # fbgemm para Intel/AMD x86
   approaches:
     - "ptq"                # Post-Training Quantization
-    - "qat"                # Quantization-Aware Training
-  granularity:
-    - "per_tensor"
-    - "per_channel"
+    - "qat"                # Quantization-Aware Trainings
   calibration_batches: 50  # Número de batches para calibración estadística (PTQ)
 
 topology:

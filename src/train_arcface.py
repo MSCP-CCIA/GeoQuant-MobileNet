@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from src.utils.logger import logger
 from src.models.factory import get_arcface_model
-from src.data.dataloaders import create_imagenette_dataloaders
+from data.dataloaders import create_imagenette_dataloaders
 from src.topology.metrics import calculate_s_index
 
 
