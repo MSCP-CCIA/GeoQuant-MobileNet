@@ -1,45 +1,80 @@
-# Configuración Base: Tesis Cuantización INT8 y Topología Latente
+# ==============================================================================
+# GeoQuant: Geometric & Topological Embedding Analysis in MobileNetV3
+# Version: 1.1.0
+# Repository: geoquant-mobilenet
+# ==============================================================================
+
+# Anchors for reusable components (DRY Principle)
+common_settings: &default_transforms
+  image_size: 112
+  interpolation: "bicubic"
+  normalization: "imagenet"
 
 project:
-  name: "FaceQuant-Biometric-Robustness" # Mantenido por consistencia de repo, objetivo actualizado.
-  experiment_version: "v1.0-topology-evaluation"
+  name: "GeoQuant-MobileNet-Robustness"
+  experiment_version: "v1.1-topology-quantization"
+  description: "Analysis of embedding degradation and biometric robustness in INT8 quantized MobileNetV3"
+  random_seed: 42
 
-hardware:
-  device_training: "cuda"  # 8GB VRAM para QAT
-  device_inference: "cpu"  # Target: x86 Intel/AMD para métricas de latencia INT8
-  num_workers: 4           # Optimizado para 16GB RAM
+environment:
+  hardware:
+    device_training: "cuda"
+    device_inference: "cpu"
+    num_workers: 4
+    pin_memory: true
+  distributed:
+    enabled: false
+    world_size: 1
 
-datasets:
-  - name: "imagenet-1k-subset"
-    path: "./data/raw/imagenet"
-    purpose: "calibration_and_val"
-    batch_size: 32
-  - name: "cifar10"
-    path: "./data/raw/cifar10"
-    purpose: "topology_robustness"
+data:
+  dataset_name: &ds_name "imagenette"
+  storage:
+    raw_dir: "./data/raw"
+    processed_dir: "./data/processed"
+    versioning_tool: "dvc"
+    remote_storage: "gdrive"
+
+  # Parameters used by DataLoaderFactory (data/dataloaders.py)
+  loader_params:
+    name: *ds_name
+    path: "./data/raw/imagenette"
     batch_size: 64
-
-storage:
-  remote_type: "gdrive"
-  data_versioning: "dvc"
-  raw_dir: "./data/raw"
-  processed_dir: "./data/processed"
+    <<: *default_transforms
 
 model:
-  architectures: 
-    - "mobilenet_v3_small"
-  pretrained: true
-  layer_hook: "avgpool"    # Capa objetivo para la extracción del espacio latente
+  architecture:
+    name: "mobilenet_v3_small"
+    pretrained: true
+    num_classes: 10
+  feature_extraction:
+    layer_hook: "avgpool"
+    embedding_size: 512
+    pooling_type: "gem" # Generalized Mean Pooling for biometric stability
 
 quantization:
   engine: "torch.ao.quantization"
-  backend: "x86"           # fbgemm para Intel/AMD x86
+  backend: "x86"
   approaches:
-    - "ptq"                # Post-Training Quantization
-    - "qat"                # Quantization-Aware Trainings
-  calibration_batches: 50  # Número de batches para calibración estadística (PTQ)
+    - "ptq"
+    - "qat"
+  settings:
+    calibration_batches: 50
+    qconfig_strategy: "fbgemm"
+    observer_type: "minmax"
+    dtype: "int8"
 
 topology:
-  metric: "cosine_similarity"
-  normalization: "L2"
-  compute_precision: "float64" # Para evitar errores de redondeo en el Índice S
+  evaluation:
+    distance_metric: "cosine_similarity"
+    normalization_schema: "L2"
+    compute_precision: "float32"
+  analysis:
+    visualize_latent_space: true
+    save_projections: true
+    export_format: "png"
+
+logging:
+  log_level: "INFO"
+  output_dir: "./outputs/logs"
+  use_tensorboard: true
+  save_checkpoints: true

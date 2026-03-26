@@ -1,38 +1,71 @@
+"""
+Transformation pipelines for GeoQuant experiments.
+Optimized for embedding analysis and INT8 quantization stability.
+"""
+
+from typing import Dict, Any, List
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
-def get_transforms(dataset_name="imagenet", is_training=False):
+
+class TransformFactory:
     """
-    Pipeline de preprocesamiento optimizado para 112x112 y arquitecturas ligeras.
-    
-    Args:
-        dataset_name (str): "imagenet" o "cifar100".
-        is_training (bool): Si es True, aplica aumentos (solo para QAT).
+    Service to generate standardized image transformation pipelines.
+    Designed for MobileNetV3 architectures and geometric evaluation.
     """
-    
-    # 1. Definir parámetros según el dataset
-    if "cifar10" in dataset_name:
-        mean = [0.4914, 0.4822, 0.4465]
-        std = [0.247, 0.243, 0.261]
-    else: # imagenet y otros
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
 
-    # 2. Pipeline base (Validation/Inference/Topology)
-    # Target: 112x112 con Interpolación Bicúbica
-    base_transforms = [
-        transforms.Resize(128, interpolation=InterpolationMode.BICUBIC),
-        transforms.CenterCrop(112),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std),
-    ]
+    # ImageNet normalization constants
+    IMAGENET_MEAN: List[float] = [0.485, 0.456, 0.406]
+    IMAGENET_STD: List[float] = [0.229, 0.224, 0.225]
 
-    # 3. Aumentos para QAT (Opcional, solo si se entrena)
-    if is_training:
-        training_transforms = [
-            transforms.RandomResizedCrop(112, interpolation=InterpolationMode.BICUBIC),
-            transforms.RandomHorizontalFlip(),
-        ] + base_transforms[2:] # Mantener ToTensor y Normalize
-        return transforms.Compose(training_transforms)
+    @classmethod
+    def get_pipeline(
+        cls,
+        image_size: int = 112,
+        is_training: bool = False
+    ) -> transforms.Compose:
+        """
+        Builds a transformation pipeline based on geometric requirements.
 
-    return transforms.Compose(base_transforms)
+        Args:
+            image_size: Target resolution (standard 112 for biometrics).
+            is_training: If True, applies data augmentation for QAT robustness.
+        """
+        normalization = transforms.Normalize(
+            mean=cls.IMAGENET_MEAN,
+            std=cls.IMAGENET_STD
+        )
+
+        if is_training:
+            return transforms.Compose([
+                transforms.RandomResizedCrop(
+                    image_size,
+                    interpolation=InterpolationMode.BICUBIC
+                ),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normalization,
+            ])
+
+        # Validation/Geometric Inference pipeline
+        return transforms.Compose([
+            transforms.Resize(
+                int(image_size * 1.14), # Maintaining aspect ratio before center crop
+                interpolation=InterpolationMode.BICUBIC
+            ),
+            transforms.CenterCrop(image_size),
+            transforms.ToTensor(),
+            normalization,
+        ])
+
+
+def get_transforms(config: Dict[str, Any], is_training: bool = False) -> transforms.Compose:
+    """
+    Functional entry point for transformation generation.
+    Extracts configuration parameters from the YAML-based dictionary.
+    """
+    image_size = config.get("image_size", 112)
+    return TransformFactory.get_pipeline(
+        image_size=image_size,
+        is_training=is_training
+    )
