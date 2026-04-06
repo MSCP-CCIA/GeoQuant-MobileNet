@@ -1,9 +1,10 @@
 """
 Data loading orchestration for the GeoQuant-MobileNet repository.
 Implements a factory pattern to decouple dataset instantiation from training logic.
+Exclusively focused on the CUB-200-2011 dataset for fine-grained geometric analysis.
 """
 
-import os
+from pathlib import Path
 from typing import Tuple, Dict, Any
 
 import torchvision
@@ -26,22 +27,37 @@ class DataLoaderFactory:
     ) -> Dataset:
         """
         Maps configuration names to PyTorch Dataset objects.
+        Uses ImageFolder assuming data is pre-organized into train/test directories.
         """
         transform = get_transforms({"image_size": image_size}, is_training=is_training)
-
         normalized_name = dataset_name.lower()
 
-        if "imagenette" in normalized_name:
-            split = 'train' if is_training else 'val'
-            return torchvision.datasets.Imagenette(
-                root=data_path,
-                split=split,
-                download=True,
+        if "cub200" in normalized_name:
+            # Apunta a la subcarpeta correcta dependiendo de la fase
+            split_folder = 'train' if is_training else 'test'
+
+            # Resolución absoluta de rutas para evitar problemas con el IDE/Terminal
+            project_root = Path(__file__).resolve().parents[1]
+
+            # Limpiamos el "./" o ".\" del inicio si existe en el YAML (ej. "./data/raw/...")
+            clean_data_path = data_path.lstrip("./\\")
+
+            split_path = project_root / clean_data_path / split_folder
+
+            # Validación crítica: Si no existe, lanza error detallado con la ruta absoluta
+            if not split_path.exists():
+                logger.error(f"Dataset path not found: {split_path}")
+                raise FileNotFoundError(
+                    f"CUB-200 split not found at {split_path}. "
+                    "Please run 'python data/download_cub200.py' first to format the dataset."
+                )
+
+            return torchvision.datasets.ImageFolder(
+                root=str(split_path),  # Convertimos el objeto Path a string para PyTorch
                 transform=transform
             )
 
-        # Extensibility point for future biometric datasets (LFW, etc.)
-        raise ValueError(f"Dataset '{dataset_name}' is not currently supported in the GeoQuant pipeline.")
+        raise ValueError(f"Dataset '{dataset_name}' is not supported in the GeoQuant pipeline.")
 
     @classmethod
     def create_loader(
@@ -57,12 +73,12 @@ class DataLoaderFactory:
             dataset_name=loader_config['name'],
             data_path=loader_config['path'],
             is_training=is_training,
-            image_size=loader_config.get('image_size', 112)
+            image_size=loader_config.get('image_size', 224)  # Ajustado a 224 para CUB-200
         )
 
         return DataLoader(
             dataset,
-            batch_size=loader_config.get('batch_size', 64),
+            batch_size=loader_config.get('batch_size', 32),  # Ajustado a 32 para evitar OOM
             shuffle=is_training,
             num_workers=hardware_config.get('num_workers', 4),
             pin_memory=hardware_config.get('pin_memory', True)
@@ -76,7 +92,6 @@ def get_project_dataloaders(config: Dict[str, Any]) -> Tuple[DataLoader, DataLoa
     Args:
         config: Full configuration dictionary loaded from base_config.yaml.
     """
-    # Navigating the professional YAML hierarchy
     env_cfg = config.get("environment", {}).get("hardware", {})
     data_cfg = config.get("data", {}).get("loader_params", {})
 

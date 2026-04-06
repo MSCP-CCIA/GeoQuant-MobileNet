@@ -13,7 +13,7 @@ common_settings: &default_transforms
 project:
   name: "GeoQuant-MobileNet-Robustness"
   experiment_version: "v1.1-topology-quantization"
-  description: "Analysis of embedding degradation and biometric robustness in INT8 quantized MobileNetV3"
+  description: "Analysis of geometric degradation of latent space in MobileNetV3 under INT8 quantization"
   random_seed: 42
 
 environment:
@@ -27,33 +27,38 @@ environment:
     world_size: 1
 
 data:
-  dataset_name: &ds_name "imagenette"
+  dataset_name: &ds_name "cub200"
+
   storage:
     raw_dir: "./data/raw"
     processed_dir: "./data/processed"
     versioning_tool: "dvc"
     remote_storage: "gdrive"
 
-  # Parameters used by DataLoaderFactory (data/dataloaders.py)
   loader_params:
     name: *ds_name
-    path: "./data/raw/imagenette"
-    batch_size: 64
+    path: "./data/raw/cub200"
+    batch_size: 32
+    num_classes: 200
     <<: *default_transforms
+    image_size: 224 # Sobrescribe el ancla: 224x224 es obligatorio para detalles de grano fino (aves)
 
 model:
   architecture:
     name: "mobilenet_v3_small"
     pretrained: true
-    num_classes: 10
   feature_extraction:
     layer_hook: "avgpool"
     embedding_size: 512
-    pooling_type: "gem" # Generalized Mean Pooling for biometric stability
+    pooling_type: "gem" # Generalized Mean Pooling para mejor captura geométrica
+  training_head:
+    type: "arcface"
+    margin: 0.5
+    scale: 30.0
 
 quantization:
   engine: "torch.ao.quantization"
-  backend: "x86"
+  backend: "x86" # fbgemm asume backend x86
   approaches:
     - "ptq"
     - "qat"
