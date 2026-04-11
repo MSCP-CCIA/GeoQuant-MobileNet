@@ -1,0 +1,9 @@
+# Override: Post-Training Quantization estática (INT8)
+
+quantization:
+  approach: "ptq"
+  backend: "x86"
+  calibration_batches: 50
+  observer: "minmax"
+  dtype: "int8"
+  output_dir: "outputs/checkpoints/ptq"

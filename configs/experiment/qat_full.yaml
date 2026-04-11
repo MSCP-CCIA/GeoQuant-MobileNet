@@ -1,0 +1,13 @@
+# Override: Quantization-Aware Training completo (FX Graph Mode)
+
+training:
+  epochs: 10
+  lr: 5.0e-5
+  momentum: 0.9
+  checkpoint_dir: "outputs/checkpoints/qat"
+
+quantization:
+  approach: "qat"
+  backend: "fbgemm"
+  dtype: "int8"
+  output_dir: "outputs/checkpoints/qat"

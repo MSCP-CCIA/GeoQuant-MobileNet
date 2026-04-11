@@ -1,0 +1,8 @@
+# Configuración QAT: torch.ao FX Graph Mode
+approach: "qat"
+engine: "torch.ao"
+backend: "fbgemm"
+dtype: "int8"
+activation: "static"
+weight: "per_channel"
+qconfig_mapping: "get_default_qat_qconfig_mapping"
