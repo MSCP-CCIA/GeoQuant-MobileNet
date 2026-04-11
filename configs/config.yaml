@@ -38,4 +38,5 @@ eval:
   device: "cpu"
   quantized_backend: "fbgemm"
   output_dir: "outputs/results"
+  embeddings_dir: "outputs/embeddings"
   report_formats: ["json", "csv"]

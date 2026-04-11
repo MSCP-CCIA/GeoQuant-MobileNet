@@ -15,6 +15,7 @@ from geoquant.data.dataset import get_dataloaders
 from geoquant.models.backbone import build_backbone
 from geoquant.models.arcface import build_arcface
 from geoquant.training.trainer import Trainer
+from geoquant.evaluation.embeddings import extract_and_save
 
 logger = get_logger(__name__)
 
@@ -54,6 +55,19 @@ def main():
     metrics = trainer.fit()
 
     logger.info(f"Entrenamiento completado: {metrics}")
+
+    # Guardar embeddings FP32 del mejor checkpoint para acelerar evaluate.py
+    eval_cfg = config.get("eval", {})
+    emb_dir = Path(eval_cfg.get("embeddings_dir", "outputs/embeddings"))
+    ckpt_dir = Path(config.get("training", {}).get("checkpoint_dir", "outputs/checkpoints"))
+    extract_and_save(
+        ckpt_path=ckpt_dir / "best_fp32.pth",
+        output_path=emb_dir / "emb_fp32.pt",
+        config=config,
+        dataloader=val_loader,
+        device=torch.device("cpu"),
+    )
+    logger.info("Embeddings FP32 guardados para evaluación.")
 
 
 if __name__ == "__main__":

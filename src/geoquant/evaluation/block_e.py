@@ -64,7 +64,7 @@ def linear_probe(
     y_train = labels_train.numpy()
     y_val = labels_val.numpy()
 
-    clf = LogisticRegression(max_iter=max_iter, solver="lbfgs", multi_class="multinomial")
+    clf = LogisticRegression(max_iter=max_iter, solver="lbfgs")
     clf.fit(X_train, y_train)
     return float(clf.score(X_val, y_val))
 

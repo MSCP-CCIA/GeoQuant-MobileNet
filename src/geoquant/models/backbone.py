@@ -1,3 +1,4 @@
+
 """
 MobileNetV3 wrapper para extracción de embeddings geométricos.
 Reemplaza la cabeza clasificadora por BatchNorm1d para producir
