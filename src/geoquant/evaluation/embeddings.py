@@ -96,30 +96,45 @@ def load_embeddings(path: str | Path) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def extract_and_save(
-    ckpt_path: str | Path,
-    output_path: str | Path,
-    config: dict,
-    dataloader: DataLoader,
-    device: torch.device,
+        ckpt_path: str | Path,
+        output_path: str | Path,
+        config: dict,
+        dataloader: DataLoader,
+        device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Atajo que carga un checkpoint, extrae embeddings y los guarda en disco.
-
-    Args:
-        ckpt_path: Ruta al state_dict (.pth).
-        output_path: Ruta de salida para los embeddings (.pt).
-        config: dict de configuración del proyecto.
-        dataloader: DataLoader del split a procesar.
-        device: Dispositivo de inferencia.
-
-    Returns:
-        (embeddings, labels) en CPU.
     """
     from geoquant.models.backbone import build_backbone
 
+    # 1. Crear el chasis original (FP32)
     model = build_backbone(config)
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
-    logger.info(f"Checkpoint cargado ← {ckpt_path}")
+    model.eval()
+
+    ckpt_str = str(ckpt_path).lower()
+
+    # 2. ADAPTACIÓN: Reconstruir el chasis según la técnica usada
+    if "ptq" in ckpt_str:
+        from torchao.quantization import quantize_, Int8DynamicActivationInt8WeightConfig
+        print("Adaptando esqueleto del modelo a INT8 para PTQ (torchao)...")
+        quantize_(model, Int8DynamicActivationInt8WeightConfig())
+
+    elif "qat" in ckpt_str:
+        from torch.ao.quantization.quantize_fx import prepare_qat_fx, convert_fx
+        from torch.ao.quantization import get_default_qat_qconfig_mapping
+        print("Adaptando esqueleto del modelo a INT8 para QAT (FX Graph)...")
+
+        # QAT requiere simular un dato de entrada para trazar el grafo
+        qconfig_mapping = get_default_qat_qconfig_mapping("fbgemm")
+        dummy_input = torch.randn(1, 3, 224, 224)
+
+        # Trazamos y convertimos el modelo para que tenga la misma forma que el guardado
+        prepared_model = prepare_qat_fx(model, qconfig_mapping, example_inputs=(dummy_input,))
+        model = convert_fx(prepared_model)
+
+    # 3. Ahora sí, cargar los pesos en el chasis correcto
+    model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=False))
+    logger.info(f"Checkpoint cargado <- {ckpt_path}")
 
     embeddings, labels = extract_embeddings(model, dataloader, device)
     save_embeddings(embeddings, labels, output_path)

@@ -10,6 +10,7 @@ import copy
 
 import torch
 import yaml
+from sqlalchemy import false
 
 from geoquant.utils.reproducibility import seed_everything
 from geoquant.utils.logging import get_logger
@@ -27,7 +28,7 @@ def load_config(path: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="GeoQuant — Benchmark de Latencia")
     parser.add_argument("--config", default="configs/config.yaml")
-    parser.add_argument("--fp32", default="outputs/checkpoints/best_fp32.pth")
+    parser.add_argument("--fp32", default="outputs/checkpoints/baseline/best_fp32.pth")
     parser.add_argument("--ptq", default=None)
     parser.add_argument("--qat", default=None)
     parser.add_argument("--iterations", type=int, default=100)
@@ -40,7 +41,7 @@ def main():
 
     # FP32
     m_fp32 = build_backbone(config)
-    m_fp32.load_state_dict(torch.load(args.fp32, map_location="cpu"))
+    m_fp32.load_state_dict(torch.load(args.fp32, map_location="cpu",weights_only=False))
     models_to_bench["FP32"] = m_fp32
 
     # PTQ

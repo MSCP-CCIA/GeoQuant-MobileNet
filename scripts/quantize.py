@@ -40,7 +40,7 @@ def main():
     parser.add_argument("--approach", choices=["ptq", "qat"], required=True)
     parser.add_argument("--config", default="configs/config.yaml")
     parser.add_argument("--experiment", default=None)
-    parser.add_argument("--checkpoint", default="outputs/checkpoints/best_fp32.pth")
+    parser.add_argument("--checkpoint", default="outputs/checkpoints/baseline_fp32/best_fp32.pth")
     parser.add_argument("--export", action="store_true", help="Exportar a TorchScript INT8")
     args = parser.parse_args()
 
