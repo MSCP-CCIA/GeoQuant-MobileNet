@@ -17,6 +17,7 @@ dependencies = [
     "dvc-gdrive",
     "mlflow",
     "pytest>=8.4.2",
+    "ipykernel>=6.31.0",
 ]
 
 [project.optional-dependencies]
