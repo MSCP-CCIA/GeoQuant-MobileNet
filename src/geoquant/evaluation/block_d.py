@@ -25,15 +25,15 @@ def iso_mean(emb_fp32: torch.Tensor, emb_int8: torch.Tensor, sample: int = 1000)
         IsoMean ∈ [0, ∞). 0 = isometría perfecta.
     """
     n = emb_fp32.shape[0]
-    idx = torch.randperm(n)[:sample]
+    sample_size = min(sample, n)
+    idx = torch.randperm(n)[:sample_size]
     a = emb_fp32[idx].float()
     b = emb_int8[idx].float()
 
-    dist_a = torch.cdist(a, a)   # (sample, sample)
+    dist_a = torch.cdist(a, a)
     dist_b = torch.cdist(b, b)
 
-    # Pares superiores (excluir diagonal)
-    mask = torch.triu(torch.ones(sample, sample, dtype=torch.bool), diagonal=1)
+    mask = torch.triu(torch.ones(sample_size, sample_size, dtype=torch.bool), diagonal=1)
     da = dist_a[mask].clamp(min=1e-8)
     db = dist_b[mask]
 

@@ -5,7 +5,7 @@ Tests unitarios para los 5 bloques de métricas de evaluación geométrica.
 import torch
 import pytest
 
-from geoquant.evaluation import block_a, block_b, block_c, block_d, block_e
+from geoquant.evaluation import block_a, block_b, block_c, block_d
 
 
 class TestBlockA:
@@ -19,19 +19,11 @@ class TestBlockA:
         drift = block_a.cosine_drift(emb_fp32, emb_int8)
         assert 0.0 <= drift <= 2.0
 
-    def test_rre_identical(self, dummy_embeddings):
-        emb, _ = dummy_embeddings
-        assert block_a.rre(emb, emb) == pytest.approx(0.0, abs=1e-5)
-
-    def test_rre_positive(self, dummy_embeddings_pair):
-        emb_fp32, emb_int8, _ = dummy_embeddings_pair
-        assert block_a.rre(emb_fp32, emb_int8) >= 0.0
-
     def test_run_keys(self, dummy_embeddings_pair):
         emb_fp32, emb_int8, _ = dummy_embeddings_pair
         result = block_a.run(emb_fp32, emb_int8)
         assert "cosine_drift" in result
-        assert "rre" in result
+        assert "cosine_similarity_per_sample" in result
 
 
 class TestBlockB:
@@ -89,19 +81,3 @@ class TestBlockD:
         edim = block_d.effective_dim(emb)
         assert edim <= emb.shape[1]
 
-
-class TestBlockE:
-    def test_knn_accuracy_range(self, dummy_embeddings):
-        emb, labels = dummy_embeddings
-        acc = block_e.knn_accuracy(emb, labels, k=3)
-        assert 0.0 <= acc <= 1.0
-
-    def test_knn_accuracy_type(self, dummy_embeddings):
-        emb, labels = dummy_embeddings
-        acc = block_e.knn_accuracy(emb, labels, k=3)
-        assert isinstance(acc, float)
-
-    def test_linear_probe_range(self, dummy_embeddings):
-        emb, labels = dummy_embeddings
-        acc = block_e.linear_probe(emb, labels, emb, labels, max_iter=100)
-        assert 0.0 <= acc <= 1.0

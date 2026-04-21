@@ -1,14 +1,12 @@
 """
 Bloque B: Similitud de Representaciones.
-  - CKA (Centered Kernel Alignment): similitud entre espacios de representación.
-  - rho_sim (ρ_sim): correlación de Spearman entre matrices de distancias.
-  - Alignment: alineación media de embeddings del mismo par.
-  - Uniformity: dispersión de la distribución en la hiperesfera.
+  - CKA (Centered Kernel Alignment): similitud estructural global entre espacios de representación.
+  - Alignment: cercanía media entre pares positivos (misma clase).
+  - Uniformity: dispersión global de la distribución en la hiperesfera.
 """
 
 import torch
 import torch.nn.functional as F
-from scipy.stats import spearmanr
 
 
 # ---------------------------------------------------------------------------
@@ -16,98 +14,94 @@ from scipy.stats import spearmanr
 # ---------------------------------------------------------------------------
 
 def _center(K: torch.Tensor) -> torch.Tensor:
-    """Centra la matriz kernel (HSIC)."""
+    """Centra una matriz kernel/Gram."""
     n = K.shape[0]
-    H = torch.eye(n, dtype=K.dtype, device=K.device) - 1.0 / n
+    H = torch.eye(n, dtype=K.dtype, device=K.device) - \
+        (1.0 / n) * torch.ones((n, n), dtype=K.dtype, device=K.device)
     return H @ K @ H
 
 
-def cka_linear(X: torch.Tensor, Y: torch.Tensor) -> float:
+def cka_linear(emb_fp32: torch.Tensor, emb_quant: torch.Tensor) -> float:
     """
-    CKA lineal entre matrices de activación X e Y.
+    Calcula CKA lineal entre dos matrices de embeddings.
 
     Args:
-        X: (N, D1) embeddings modelo A.
-        Y: (N, D2) embeddings modelo B.
+        emb_fp32: Embeddings originales (N, D), FP32.
+        emb_quant: Embeddings cuantizados (N, D), en dominio real.
 
     Returns:
-        CKA ∈ [0, 1]. 1 = representaciones idénticas.
+        Escalar CKA. Valores altos indican mayor similitud estructural global.
     """
-    X = X.float()
-    Y = Y.float()
-    K = X @ X.T
-    L = Y @ Y.T
+    emb_fp32 = emb_fp32.float()
+    emb_quant = emb_quant.float()
+
+    K = emb_fp32 @ emb_fp32.T
+    L = emb_quant @ emb_quant.T
+
     Kc = _center(K)
     Lc = _center(L)
+
     hsic_xy = (Kc * Lc).sum()
     hsic_xx = (Kc * Kc).sum().sqrt()
     hsic_yy = (Lc * Lc).sum().sqrt()
-    denom = hsic_xx * hsic_yy
-    return (hsic_xy / denom.clamp(min=1e-8)).item()
+
+    return (hsic_xy / (hsic_xx * hsic_yy).clamp(min=1e-8)).item()
 
 
 # ---------------------------------------------------------------------------
-# ρ_sim: Correlación de Spearman entre distancias
-# ---------------------------------------------------------------------------
-
-def rho_sim(emb_a: torch.Tensor, emb_b: torch.Tensor, sample: int = 500) -> float:
-    """
-    Correlación de Spearman entre las distancias par-a-par de dos espacios.
-
-    Args:
-        emb_a, emb_b: (N, D) embeddings de dos modelos.
-        sample: Número de pares para subsamplear (evita O(N²) con N grande).
-
-    Returns:
-        ρ_sim ∈ [-1, 1]. 1 = orden de distancias perfectamente preservado.
-    """
-    n = emb_a.shape[0]
-    idx = torch.randperm(n)[:sample]
-    a = emb_a[idx].float()
-    b = emb_b[idx].float()
-
-    dist_a = torch.cdist(a, a).triu(diagonal=1).flatten()
-    dist_b = torch.cdist(b, b).triu(diagonal=1).flatten()
-
-    mask = dist_a > 0
-    rho, _ = spearmanr(dist_a[mask].numpy(), dist_b[mask].numpy())
-    return float(rho)
-
-
-# ---------------------------------------------------------------------------
-# Alignment y Uniformity (Wang & Isola, 2020)
+# Alignment y Uniformity
 # ---------------------------------------------------------------------------
 
 def alignment(emb: torch.Tensor, labels: torch.Tensor, alpha: float = 2.0) -> float:
     """
-    Alineación: distancia media entre embeddings de la misma clase.
-    Menor = mejor (los positivos están cerca en la hiperesfera).
+    Calcula alignment sobre una matriz de embeddings.
+
+    Args:
+        emb: Embeddings (N, D).
+        labels: Etiquetas de clase (N,).
+        alpha: Exponente de la distancia, típicamente 2.
+
+    Returns:
+        Escalar con la distancia media entre todos los pares positivos.
+        Menor = mejor compactación intra-clase.
     """
     emb = F.normalize(emb.float(), dim=1)
-    loss = 0.0
-    count = 0
-    unique_classes = labels.unique()
-    for c in unique_classes:
-        mask = labels == c
-        e = emb[mask]
-        if e.shape[0] < 2:
-            continue
-        # Distancia L2 entre todos los pares de la clase
-        diff = e.unsqueeze(0) - e.unsqueeze(1)  # (n, n, D)
-        dist = diff.norm(dim=2).pow(alpha)
+
+    total = 0.0
+    num_pairs = 0
+
+    for c in labels.unique():
+        e = emb[labels == c]
         n = e.shape[0]
-        loss += dist.triu(diagonal=1).sum() / (n * (n - 1) / 2)
-        count += 1
-    return (loss / max(count, 1)).item()
+
+        if n < 2:
+            continue
+
+        diff = e.unsqueeze(0) - e.unsqueeze(1)
+        dist = diff.norm(dim=2).pow(alpha)
+
+        upper = dist.triu(diagonal=1)
+        total += upper.sum()
+        num_pairs += n * (n - 1) / 2
+
+    return (total / max(num_pairs, 1)).item()
 
 
 def uniformity(emb: torch.Tensor, t: float = 2.0) -> float:
     """
-    Uniformidad: dispersión en la hiperesfera.
-    Mayor (menos negativo) = distribución más uniforme.
+    Calcula uniformity sobre una matriz de embeddings.
+
+    Args:
+        emb: Embeddings (N, D).
+        t: Parámetro de escala.
+
+    Returns:
+        Escalar de uniformidad global.
+        Más negativo = mejor dispersión global en la hiperesfera.
     """
     emb = F.normalize(emb.float(), dim=1)
-    sq_dist = torch.cdist(emb, emb).pow(2)
+
+    sq_dist = torch.pdist(emb, p=2).pow(2)
     return sq_dist.mul(-t).exp().mean().log().item()
 
 
@@ -115,13 +109,20 @@ def uniformity(emb: torch.Tensor, t: float = 2.0) -> float:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run(emb_fp32: torch.Tensor, emb_int8: torch.Tensor, labels: torch.Tensor) -> dict:
-    """Ejecuta todas las métricas del Bloque B."""
+def run(emb_fp32: torch.Tensor, emb_quant: torch.Tensor, labels: torch.Tensor) -> dict:
+    """Ejecuta las métricas del Bloque B."""
+    alignment_fp32 = alignment(emb_fp32, labels)
+    alignment_quant = alignment(emb_quant, labels)
+
+    uniformity_fp32 = uniformity(emb_fp32)
+    uniformity_quant = uniformity(emb_quant)
+
     return {
-        "cka": cka_linear(emb_fp32, emb_int8),
-        "rho_sim": rho_sim(emb_fp32, emb_int8),
-        "alignment_fp32": alignment(emb_fp32, labels),
-        "alignment_int8": alignment(emb_int8, labels),
-        "uniformity_fp32": uniformity(emb_fp32),
-        "uniformity_int8": uniformity(emb_int8),
+        "cka": cka_linear(emb_fp32, emb_quant),
+        "alignment_fp32": alignment_fp32,
+        "alignment_quant": alignment_quant,
+        "delta_alignment": alignment_quant - alignment_fp32,
+        "uniformity_fp32": uniformity_fp32,
+        "uniformity_quant": uniformity_quant,
+        "delta_uniformity": uniformity_quant - uniformity_fp32,
     }
