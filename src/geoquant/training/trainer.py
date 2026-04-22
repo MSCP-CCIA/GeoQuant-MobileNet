@@ -12,7 +12,6 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from geoquant.utils.logging import get_logger
-from geoquant.evaluation.block_e import knn_accuracy
 
 logger = get_logger(__name__)
 
@@ -82,7 +81,7 @@ class Trainer:
         return running_loss / len(self.train_loader)
 
     def _val_epoch(self, epoch: int):
-        """Extrae embeddings del split val y calcula kNN accuracy."""
+        """Extrae embeddings del split val."""
         self.backbone.eval()
         all_emb, all_targets = [], []
 
@@ -95,8 +94,7 @@ class Trainer:
 
         emb_tensor = torch.cat(all_emb)
         tgt_tensor = torch.cat(all_targets)
-        acc = knn_accuracy(emb_tensor, tgt_tensor, k=5)
-        return acc, emb_tensor, tgt_tensor
+        return emb_tensor, tgt_tensor
 
     # ------------------------------------------------------------------
     # Entrenamiento completo
@@ -105,21 +103,21 @@ class Trainer:
     def fit(self) -> dict:
         """Entrena y retorna métricas del mejor checkpoint."""
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        best_acc = 0.0
+        best_loss = float('inf')
         best_metrics = {}
 
         for epoch in range(1, self.epochs + 1):
             train_loss = self._train_epoch(epoch)
-            val_acc, emb, targets = self._val_epoch(epoch)
+            emb, targets = self._val_epoch(epoch)
             self.scheduler.step()
 
             logger.info(
-                f"Epoch {epoch}/{self.epochs} | loss={train_loss:.4f} | kNN@5={val_acc:.4f}"
+                f"Epoch {epoch}/{self.epochs} | loss={train_loss:.4f}"
             )
 
-            if val_acc > best_acc:
-                best_acc = val_acc
-                best_metrics = {"epoch": epoch, "knn_acc": val_acc, "train_loss": train_loss}
+            if train_loss < best_loss:
+                best_loss = train_loss
+                best_metrics = {"epoch": epoch, "train_loss": train_loss}
                 ckpt_path = self.checkpoint_dir / "best_fp32.pth"
                 torch.save(self.backbone.state_dict(), ckpt_path)
                 logger.info(f"  Nuevo mejor modelo guardado → {ckpt_path}")
