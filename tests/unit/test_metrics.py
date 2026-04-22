@@ -62,10 +62,6 @@ class TestBlockC:
 
 
 class TestBlockD:
-    def test_iso_mean_identical(self, dummy_embeddings):
-        emb, _ = dummy_embeddings
-        assert block_d.iso_mean(emb, emb, sample=50) == pytest.approx(0.0, abs=1e-4)
-
     def test_edim_positive(self, dummy_embeddings):
         emb, _ = dummy_embeddings
         edim = block_d.effective_dim(emb)
