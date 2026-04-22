@@ -8,11 +8,6 @@ Bloque B: Similitud de Representaciones.
 import torch
 import torch.nn.functional as F
 
-
-# ---------------------------------------------------------------------------
-# CKA (Linear)
-# ---------------------------------------------------------------------------
-
 def _center(K: torch.Tensor) -> torch.Tensor:
     """Centra una matriz kernel/Gram."""
     n = K.shape[0]
@@ -46,11 +41,6 @@ def cka_linear(emb_fp32: torch.Tensor, emb_quant: torch.Tensor) -> float:
     hsic_yy = (Lc * Lc).sum().sqrt()
 
     return (hsic_xy / (hsic_xx * hsic_yy).clamp(min=1e-8)).item()
-
-
-# ---------------------------------------------------------------------------
-# Alignment y Uniformity
-# ---------------------------------------------------------------------------
 
 def alignment(emb: torch.Tensor, labels: torch.Tensor, alpha: float = 2.0) -> float:
     """
@@ -104,10 +94,6 @@ def uniformity(emb: torch.Tensor, t: float = 2.0) -> float:
     sq_dist = torch.pdist(emb, p=2).pow(2)
     return sq_dist.mul(-t).exp().mean().log().item()
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def run(emb_fp32: torch.Tensor, emb_quant: torch.Tensor, labels: torch.Tensor) -> dict:
     """Ejecuta las métricas del Bloque B."""

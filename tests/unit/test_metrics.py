@@ -54,16 +54,11 @@ class TestBlockC:
         overlap = block_c.overlap_at_k(emb, emb, k=5)
         assert overlap == pytest.approx(1.0, abs=1e-5)
 
-    def test_trustworthiness_range(self, dummy_embeddings_pair):
-        emb_fp32, emb_int8, _ = dummy_embeddings_pair
-        tw = block_c.trustworthiness_score(emb_fp32, emb_int8, k=5)
-        assert 0.0 <= tw <= 1.0
-
     def test_run_keys(self, dummy_embeddings_pair):
         emb_fp32, emb_int8, _ = dummy_embeddings_pair
-        result = block_c.run(emb_fp32, emb_int8, k=5)
+        result = block_c.run(emb_fp32, emb_int8, ks=(5,))
         assert "overlap_at_5" in result
-        assert "trustworthiness" in result
+        assert len(result) == 1
 
 
 class TestBlockD:

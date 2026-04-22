@@ -52,7 +52,7 @@ class EvaluationSuite:
         results["block_b"] = block_b.run(emb_fp32, emb_int8, labels)
 
         logger.info("Bloque C: Preservación de Vecindad...")
-        results["block_c"] = block_c.run(emb_fp32, emb_int8, k=self.k)
+        results["block_c"] = block_c.run(emb_fp32, emb_int8, ks=(self.k,))
 
         logger.info("Bloque D: Geometría Intrínseca...")
         results["block_d"] = block_d.run(emb_fp32, emb_int8)
