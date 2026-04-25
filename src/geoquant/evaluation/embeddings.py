@@ -106,6 +106,7 @@ def extract_and_save(
     Atajo que carga un checkpoint, extrae embeddings y los guarda en disco.
     """
     from geoquant.models.backbone import build_backbone
+    import torch.nn as nn
 
     # 1. Crear el chasis original (FP32)
     model = build_backbone(config)
@@ -115,27 +116,49 @@ def extract_and_save(
 
     # 2. ADAPTACIÓN: Reconstruir el chasis según la técnica usada
     if "ptq" in ckpt_str:
-        from torchao.quantization import quantize_, Int8DynamicActivationInt8WeightConfig
-        print("Adaptando esqueleto del modelo a INT8 para PTQ (torchao)...")
-        quantize_(model, Int8DynamicActivationInt8WeightConfig())
+        from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
+        from torch.ao.quantization import get_default_qconfig_mapping, QConfig
+        from torch.ao.quantization.observer import default_histogram_observer, default_weight_observer
+
+        print("Adaptando esqueleto del modelo a INT8 para PTQ Estático (FX Graph x86)...")
+
+        # Mismas reglas protectoras que usamos en scripts/quantize.py
+        torch.backends.quantized.engine = 'x86'
+        qconfig_mapping = get_default_qconfig_mapping('x86')
+
+        safe_qconfig = QConfig(
+            activation=default_histogram_observer.with_args(reduce_range=True),
+            weight=default_weight_observer
+        )
+        fusion_layers = [nn.Conv2d, nn.Linear, nn.BatchNorm2d, nn.ReLU, nn.ReLU6]
+        for op in fusion_layers:
+            qconfig_mapping.set_object_type(op, safe_qconfig)
+
+        dummy_input = torch.randn(1, 3, 224, 224)
+        prepared_model = prepare_fx(model, qconfig_mapping, example_inputs=(dummy_input,))
+        model = convert_fx(prepared_model)
 
     elif "qat" in ckpt_str:
         from torch.ao.quantization.quantize_fx import prepare_qat_fx, convert_fx
         from torch.ao.quantization import get_default_qat_qconfig_mapping
-        print("Adaptando esqueleto del modelo a INT8 para QAT (FX Graph)...")
+        print("Adaptando esqueleto del modelo a INT8 para QAT (FX Graph x86)...")
 
-        # QAT requiere simular un dato de entrada para trazar el grafo
-        qconfig_mapping = get_default_qat_qconfig_mapping("fbgemm")
+        # Reglas para compilar QAT en Windows
+        torch.backends.quantized.engine = 'x86'
+        qconfig_mapping = get_default_qat_qconfig_mapping("x86")
         dummy_input = torch.randn(1, 3, 224, 224)
 
-        # Trazamos y convertimos el modelo para que tenga la misma forma que el guardado
-        prepared_model = prepare_qat_fx(model, qconfig_mapping, example_inputs=(dummy_input,))
-        model = convert_fx(prepared_model)
+        # QAT se prepara en modo train y se convierte en modo eval
+        prepared_model = prepare_qat_fx(model.train(), qconfig_mapping, example_inputs=(dummy_input,))
+        model = convert_fx(prepared_model.eval())
 
     # 3. Ahora sí, cargar los pesos en el chasis correcto
-    model.load_state_dict(torch.load(ckpt_path, map_location=device, weights_only=False))
+    # (Los modelos INT8 deben vivir en la CPU, nos aseguramos de no pasarlos a CUDA)
+    device_to_load = torch.device("cpu") if ("ptq" in ckpt_str or "qat" in ckpt_str) else device
+    model.load_state_dict(torch.load(ckpt_path, map_location=device_to_load, weights_only=False))
     logger.info(f"Checkpoint cargado <- {ckpt_path}")
 
-    embeddings, labels = extract_embeddings(model, dataloader, device)
+    # Extraer y guardar
+    embeddings, labels = extract_embeddings(model, dataloader, device_to_load)
     save_embeddings(embeddings, labels, output_path)
     return embeddings, labels

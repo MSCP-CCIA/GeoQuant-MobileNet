@@ -1,34 +1,16 @@
-"""
-Trainer unificado: cubre entrenamiento FP32 baseline y QAT fine-tuning.
-Optimiza por S-Index (separabilidad geométrica) además de accuracy.
-"""
-
 import os
 from pathlib import Path
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 
 from geoquant.utils.logging import get_logger
+from geoquant.evaluation.block_b import alignment
 
 logger = get_logger(__name__)
 
-
 class Trainer:
-    """
-    Trainer unificado para FP32 y QAT.
-
-    Args:
-        backbone: MobileNetV3Backbone.
-        arcface_head: ArcFaceHead.
-        train_loader: DataLoader de entrenamiento.
-        val_loader: DataLoader de validación.
-        config: dict de configuración completo.
-        device: torch.device objetivo.
-    """
-
     def __init__(self, backbone, arcface_head, train_loader, val_loader, config, device):
         self.backbone = backbone.to(device)
         self.arcface_head = arcface_head.to(device)
@@ -38,26 +20,34 @@ class Trainer:
         self.device = device
 
         train_cfg = config.get("training", {})
-        params = list(self.backbone.parameters()) + list(self.arcface_head.parameters())
-
         self.criterion = nn.CrossEntropyLoss(
             label_smoothing=train_cfg.get("label_smoothing", 0.1)
         )
+        self.checkpoint_dir = Path(train_cfg.get("checkpoint_dir", "outputs/checkpoints"))
+        self.optimizer = None
+        self.scheduler = None
+
+    def _setup_phase(self, freeze_backbone: bool, lr: float, epochs: int):
+        if freeze_backbone:
+            for param in self.backbone.model.features.parameters():
+                param.requires_grad = False
+            for param in self.backbone.model.classifier.parameters():
+                param.requires_grad = True
+        else:
+            for param in self.backbone.parameters():
+                param.requires_grad = True
+
+        params = list(filter(lambda p: p.requires_grad, self.backbone.parameters())) + \
+                 list(self.arcface_head.parameters())
+
+        train_cfg = self.config.get("training", {})
         self.optimizer = optim.SGD(
             params,
-            lr=train_cfg.get("lr", 0.01),
+            lr=lr,
             momentum=train_cfg.get("momentum", 0.9),
             weight_decay=train_cfg.get("weight_decay", 5e-4),
         )
-        self.epochs = train_cfg.get("epochs", 30)
-        self.checkpoint_dir = Path(train_cfg.get("checkpoint_dir", "outputs/checkpoints"))
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=self.epochs
-        )
-
-    # ------------------------------------------------------------------
-    # Bucle de entrenamiento
-    # ------------------------------------------------------------------
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=epochs)
 
     def _train_epoch(self, epoch: int) -> float:
         self.backbone.train()
@@ -81,7 +71,6 @@ class Trainer:
         return running_loss / len(self.train_loader)
 
     def _val_epoch(self, epoch: int):
-        """Extrae embeddings del split val."""
         self.backbone.eval()
         all_emb, all_targets = [], []
 
@@ -96,30 +85,33 @@ class Trainer:
         tgt_tensor = torch.cat(all_targets)
         return emb_tensor, tgt_tensor
 
-    # ------------------------------------------------------------------
-    # Entrenamiento completo
-    # ------------------------------------------------------------------
-
-    def fit(self) -> dict:
-        """Entrena y retorna métricas del mejor checkpoint."""
+    def fit_phase(self, epochs: int, lr: float, freeze_backbone: bool, phase_name: str) -> dict:
+        self.epochs = epochs
+        self._setup_phase(freeze_backbone, lr, epochs)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        best_loss = float('inf')
+
+        # --- LÓGICA DE MINIMIZACIÓN DE ALIGNMENT ---
+        best_align = float('inf')  # Ahora buscamos el valor más bajo
         best_metrics = {}
 
-        for epoch in range(1, self.epochs + 1):
+        logger.info(f"--- Iniciando Fase: {phase_name} ({epochs} epochs, lr={lr}) ---")
+
+        for epoch in range(1, epochs + 1):
             train_loss = self._train_epoch(epoch)
             emb, targets = self._val_epoch(epoch)
+
+            # Evaluar compacidad topológica con Bloque B
+            val_align = alignment(emb, targets)
             self.scheduler.step()
 
-            logger.info(
-                f"Epoch {epoch}/{self.epochs} | loss={train_loss:.4f}"
-            )
+            logger.info(f"[{phase_name}] Epoch {epoch}/{epochs} | loss={train_loss:.4f} | Alignment={val_align:.4f}")
 
-            if train_loss < best_loss:
-                best_loss = train_loss
-                best_metrics = {"epoch": epoch, "train_loss": train_loss}
-                ckpt_path = self.checkpoint_dir / "best_fp32.pth"
+            # Guardar si las clases están más compactas
+            if val_align < best_align:
+                best_align = val_align
+                best_metrics = {"epoch": epoch, "alignment": val_align, "train_loss": train_loss}
+                ckpt_path = self.checkpoint_dir / f"best_fp32_{phase_name}.pth"
                 torch.save(self.backbone.state_dict(), ckpt_path)
-                logger.info(f"  Nuevo mejor modelo guardado → {ckpt_path}")
+                logger.info(f"  Nuevo mejor modelo (Clústeres más densos) guardado → {ckpt_path}")
 
         return best_metrics

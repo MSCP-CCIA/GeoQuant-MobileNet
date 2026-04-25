@@ -44,7 +44,7 @@ def get_embeddings(key, ckpt_path, emb_dir, config, val_loader, device, force):
 def main():
     parser = argparse.ArgumentParser(description="GeoQuant — Evaluación Geométrica")
     parser.add_argument("--config", default="configs/config.yaml")
-    parser.add_argument("--fp32", default="outputs/checkpoints/best_fp32.pth")
+    parser.add_argument("--fp32", default="outputs/checkpoints/baseline_fp32/best_fp32_finetuning.pth")
     parser.add_argument("--int8", required=True, help="Checkpoint INT8 (PTQ o QAT)")
     parser.add_argument("--approach", default="ptq", choices=["ptq", "qat"])
     parser.add_argument("--output-dir", default=None,

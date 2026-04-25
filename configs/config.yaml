@@ -18,7 +18,7 @@ data:
 model:
   backbone: "mobilenet_v3_small"
   pretrained: true
-  embedding_size: 576        # salida de avgpool en MobileNetV3-Small
+  embedding_size: 512
   pooling: "avg"
 
   arcface:
