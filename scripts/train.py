@@ -88,8 +88,8 @@ def main():
     ckpt_dir = Path(train_cfg.get("checkpoint_dir", "outputs/checkpoints"))
 
     extract_and_save(
-        ckpt_path=ckpt_dir / "best_fp32_finetuning.pth",
-        output_path=emb_dir / "emb_fp32.pt",
+        ckpt_path=ckpt_dir / f"best_fp32_finetuning_{config['model']['embedding_size']}d.pth",
+        out_path=emb_dir / f"emb_fp32_{config['model']['embedding_size']}d.pt",
         config=config,
         dataloader=val_loader,
         device=torch.device("cpu"),

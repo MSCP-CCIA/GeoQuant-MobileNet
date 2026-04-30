@@ -1,4 +1,13 @@
+"""
+Módulo de Entrenamiento (Trainer) para el Baseline FP32.
+
+Este script gestiona el ciclo de entrenamiento y validación del modelo maestro.
+Incluye extracción dinámica de la dimensión del embedding, evaluación topológica
+con k-NN (1-NN para rigurosidad, 5-NN para cohesión) y registro en CSV.
+"""
+
 import os
+import csv
 from pathlib import Path
 import torch
 import torch.nn as nn
@@ -6,9 +15,34 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from geoquant.utils.logging import get_logger
-from geoquant.evaluation.block_b import alignment
 
 logger = get_logger(__name__)
+
+
+def compute_knn_accuracy(gallery_embs: torch.Tensor, gallery_labels: torch.Tensor,
+                         query_embs: torch.Tensor, query_labels: torch.Tensor, k: int = 1) -> float:
+    """
+    Calcula el Accuracy Topológico.
+    Si k=1 usa emparejamiento exacto (Rank-1).
+    Si k>1 usa votación mayoritaria.
+    """
+    dist_matrix = torch.cdist(query_embs, gallery_embs)
+
+    if gallery_embs is query_embs:
+        dist_matrix.fill_diagonal_(float('inf'))
+
+    knn_indices = dist_matrix.topk(k, largest=False, dim=1).indices
+    knn_labels = gallery_labels[knn_indices]
+
+    if k == 1:
+        preds = knn_labels.squeeze()
+    else:
+        # Votación mayoritaria
+        preds = torch.mode(knn_labels, dim=1).values
+
+    acc = (preds == query_labels).float().mean().item()
+    return acc
+
 
 class Trainer:
     def __init__(self, backbone, arcface_head, train_loader, val_loader, config, device):
@@ -79,7 +113,7 @@ class Trainer:
                 inputs = inputs.to(self.device)
                 emb = self.backbone(inputs)
                 all_emb.append(emb.cpu())
-                all_targets.append(targets)
+                all_targets.append(targets.cpu())
 
         emb_tensor = torch.cat(all_emb)
         tgt_tensor = torch.cat(all_targets)
@@ -90,28 +124,59 @@ class Trainer:
         self._setup_phase(freeze_backbone, lr, epochs)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        # --- LÓGICA DE MINIMIZACIÓN DE ALIGNMENT ---
-        best_align = float('inf')  # Ahora buscamos el valor más bajo
-        best_metrics = {}
+        # --- EXTRACCIÓN DINÁMICA DE DIMENSIÓN ---
+        self.backbone.eval()
+        dummy_input = torch.randn(1, 3, 224, 224).to(self.device)
+        with torch.no_grad():
+            emb_size = self.backbone(dummy_input).shape[1]
 
-        logger.info(f"--- Iniciando Fase: {phase_name} ({epochs} epochs, lr={lr}) ---")
+        logger.info(f"--- Iniciando Fase: {phase_name} ({epochs} epochs, lr={lr}, Dim: {emb_size}d) ---")
+
+        best_1nn_acc = 0.0
+        best_metrics = {}
+        experiment_history = []
 
         for epoch in range(1, epochs + 1):
             train_loss = self._train_epoch(epoch)
             emb, targets = self._val_epoch(epoch)
 
-            # Evaluar compacidad topológica con Bloque B
-            val_align = alignment(emb, targets)
+            # Evaluar separabilidad topológica (Rigurosidad y Cohesión)
+            val_1nn_acc = compute_knn_accuracy(emb, targets, emb, targets, k=1)
+            val_5nn_acc = compute_knn_accuracy(emb, targets, emb, targets, k=5)
+
             self.scheduler.step()
 
-            logger.info(f"[{phase_name}] Epoch {epoch}/{epochs} | loss={train_loss:.4f} | Alignment={val_align:.4f}")
+            logger.info(
+                f"[{phase_name}] Epoch {epoch} | Loss={train_loss:.4f} | 1-NN={val_1nn_acc:.4f} | 5-NN={val_5nn_acc:.4f}")
 
-            # Guardar si las clases están más compactas
-            if val_align < best_align:
-                best_align = val_align
-                best_metrics = {"epoch": epoch, "alignment": val_align, "train_loss": train_loss}
-                ckpt_path = self.checkpoint_dir / f"best_fp32_{phase_name}.pth"
+            experiment_history.append({
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_1nn_acc": val_1nn_acc,
+                "val_5nn_acc": val_5nn_acc
+            })
+
+            # Selección del mejor modelo (Basado siempre en 1-NN para el Maestro FP32)
+            if val_1nn_acc > best_1nn_acc:
+                best_1nn_acc = val_1nn_acc
+                best_metrics = {
+                    "epoch": epoch,
+                    "1nn_acc": val_1nn_acc,
+                    "5nn_acc": val_5nn_acc,
+                    "train_loss": train_loss
+                }
+
+                # Nombrado dinámico del checkpoint
+                ckpt_path = self.checkpoint_dir / f"best_fp32_{phase_name}_{emb_size}d.pth"
                 torch.save(self.backbone.state_dict(), ckpt_path)
-                logger.info(f"  Nuevo mejor modelo (Clústeres más densos) guardado → {ckpt_path}")
+                logger.info(f"  ^-- Topología FP32 Superior! Guardado -> {ckpt_path}")
+
+        # --- GUARDAR HISTORIAL CSV CON NOMBRADO DINÁMICO ---
+        history_path = self.checkpoint_dir.parent / f"training_history_{phase_name}_{emb_size}d.csv"
+        with open(history_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["epoch", "train_loss", "val_1nn_acc", "val_5nn_acc"])
+            writer.writeheader()
+            writer.writerows(experiment_history)
+        logger.info(f"Historial CSV guardado -> {history_path}")
 
         return best_metrics

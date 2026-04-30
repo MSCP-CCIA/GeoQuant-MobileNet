@@ -6,6 +6,13 @@ import csv
 import json
 from pathlib import Path
 from typing import Any
+import torch
+
+class TensorEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.item() if obj.numel() == 1 else obj.tolist()
+        return super().default(obj)
 
 
 class Reporter:
@@ -27,7 +34,7 @@ class Reporter:
     def to_json(self, results: dict, filename: str = "results.json") -> Path:
         out = self.output_dir / filename
         with open(out, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
+            json.dump(results, f, indent=2, ensure_ascii=False, cls=TensorEncoder)
         return out
 
     # ------------------------------------------------------------------

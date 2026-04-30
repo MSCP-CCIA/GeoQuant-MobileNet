@@ -1,8 +1,8 @@
-# Configuración PTQ: torchao Int8DynamicActivationInt8Weight
+# Configuración PTQ: torch.ao FX Graph Mode
 approach: "ptq"
 engine: "torchao"
 backend: "x86"
 dtype: "int8"
-activation: "dynamic"
+activation: "static"
 weight: "per_channel"
 calibration_batches: 50

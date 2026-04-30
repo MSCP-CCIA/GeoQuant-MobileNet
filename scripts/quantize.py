@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 import torch
 
+from geoquant.quantization import apply_qat_distillation
 from geoquant.utils.reproducibility import seed_everything
 from geoquant.utils.logging import get_logger
 from geoquant.data.dataset import get_dataloaders
@@ -11,7 +12,7 @@ from geoquant.models.arcface import build_arcface
 
 # Importamos nuestros nuevos métodos robustos
 from geoquant.quantization.ptq import apply_ptq_static
-from geoquant.quantization.qat import apply_qat_distillation
+
 
 logger = get_logger(__name__)
 
@@ -36,7 +37,6 @@ def main():
 
     config = load_config(args.config, args.experiment)
     seed_everything(config.get("seed", 42))
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Dispositivo: {device}")
 
@@ -49,7 +49,7 @@ def main():
 
     ## 3. Cargar los pesos perfectos en FP32 de nuestro finetuning
     # Fijamos la ruta explícitamente a la carpeta donde el baseline guardó el modelo
-    fp32_path = Path("outputs/checkpoints/baseline_fp32/best_fp32_finetuning.pth")
+    fp32_path = Path(f"outputs/checkpoints/baseline_fp32/best_fp32_finetuning_{config['model']['embedding_size']}d.pth")
 
     # Fallback por si en el futuro cambiaste los nombres
     if not fp32_path.exists():
@@ -64,7 +64,7 @@ def main():
     # 4. Leer configuración de cuantización
     quant_cfg = config.get("quantization", {})
     method = quant_cfg.get("approach", "ptq")  # Esto vendrá sobreescrito por el yaml de experiment
-    output_path = quant_cfg.get("output_path", f"outputs/quantized/model_{method}.pth")
+    output_path = quant_cfg.get("output_path", f"outputs/quantized/model_{method}_{config['model']['embedding_size']}d.pth")
 
     # 5. Ejecutar la ruta seleccionada
     if method == "ptq":
