@@ -35,3 +35,4 @@ Thumbs.db
 .gemini
 .idea
 data/test_data_pipeline.py
+data
