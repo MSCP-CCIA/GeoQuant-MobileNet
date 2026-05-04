@@ -22,16 +22,17 @@
 12. [Cuantización: QAT con destilación geométrica](#12-cuantización-qat-con-destilación-geométrica)
 13. [Suite de evaluación geométrica (Bloques A–D)](#13-suite-de-evaluación-geométrica-bloques-ad)
 14. [Benchmark de latencia y disco](#14-benchmark-de-latencia-y-disco)
-15. [Reportes (JSON / CSV / LaTeX)](#15-reportes-json--csv--latex)
-16. [Scripts CLI](#16-scripts-cli)
-17. [Targets de Make](#17-targets-de-make)
-18. [Notebooks](#18-notebooks)
-19. [Tests](#19-tests)
-20. [Reproducibilidad](#20-reproducibilidad)
-21. [Outputs y artefactos generados](#21-outputs-y-artefactos-generados)
-22. [Glosario de métricas](#22-glosario-de-métricas)
-23. [Solución de problemas](#23-solución-de-problemas)
-24. [Licencia y autoría](#24-licencia-y-autoría)
+15. [Stress benchmark: dummy data + FLOPs + peak RAM](#15-stress-benchmark-dummy-data--flops--peak-ram)
+16. [Reportes (JSON / CSV / LaTeX)](#16-reportes-json--csv--latex)
+17. [Scripts CLI](#17-scripts-cli)
+18. [Targets de Make](#18-targets-de-make)
+19. [Notebooks](#19-notebooks)
+20. [Tests](#20-tests)
+21. [Reproducibilidad](#21-reproducibilidad)
+22. [Outputs y artefactos generados](#22-outputs-y-artefactos-generados)
+23. [Glosario de métricas](#23-glosario-de-métricas)
+24. [Solución de problemas](#24-solución-de-problemas)
+25. [Licencia y autoría](#25-licencia-y-autoría)
 
 ---
 
@@ -148,14 +149,16 @@ GeoQuant-MobileNet/
 │   ├── train.py                      # Entrenamiento FP32 (warmup + finetuning)
 │   ├── quantize.py                   # PTQ o QAT (vía --approach)
 │   ├── evaluate.py                   # Evalúa los 4 bloques + reporter
-│   └── benchmark.py                  # Latencia y huella en disco
+│   ├── benchmark.py                  # Latencia y huella en disco (rápido)
+│   └── stress_benchmark.py           # Latencia + peak RAM + FLOPs + dummy data
 │
 ├── src/geoquant/
 │   ├── __init__.py                   # __version__ = "0.2.0"
 │   ├── data/
 │   │   ├── dataset.py                # CUBDataset + get_dataloaders
 │   │   ├── transforms.py             # TransformFactory (ImageNet stats)
-│   │   └── samplers.py               # BalancedClassSampler (n por clase)
+│   │   ├── samplers.py               # BalancedClassSampler (n por clase)
+│   │   └── dummy_generator.py        # CUB + ruido gaussiano → ImageFolder dummy
 │   ├── models/
 │   │   ├── backbone.py               # MobileNetV3Backbone (proyección + BN1d)
 │   │   └── arcface.py                # ArcFaceHead (margen angular aditivo)
@@ -173,6 +176,8 @@ GeoQuant-MobileNet/
 │   │   ├── block_d.py                # EDim (entropía espectral)
 │   │   ├── embeddings.py             # extract_embeddings + cache .pt
 │   │   ├── latency.py                # measure_latency + disk_mb
+│   │   ├── flops_counter.py          # count_flops (vía thop)
+│   │   ├── memory_profiler.py        # measure_memory (peak RAM con tracemalloc)
 │   │   └── reporter.py               # JSON / CSV / LaTeX
 │   └── utils/
 │       ├── logging.py                # get_logger + MLflowLogger opcional
@@ -209,6 +214,8 @@ GeoQuant-MobileNet/
 **Numérico / científico**
 - NumPy, SciPy, scikit-learn (t-SNE en notebooks).
 - Matplotlib (visualizaciones).
+- `thop` — conteo de FLOPs y parámetros (usado por `flops_counter.py`).
+- `tracemalloc` (stdlib) — perfil de peak RAM en CPU (usado por `memory_profiler.py`).
 
 **Operación**
 - PyYAML (config), tqdm (progress bars).
@@ -280,9 +287,46 @@ Carga vía `torchvision.datasets.ImageFolder` (`src/geoquant/data/dataset.py:46`
 
 **Sampler balanceado.** `BalancedClassSampler(labels, n_samples_per_class=4)` en `src/geoquant/data/samplers.py` garantiza que cada época contenga exactamente *N* muestras por clase, lo cual es **crítico** para estabilizar pérdidas métricas como ArcFace (impide que clases minoritarias colapsen).
 
-**Datos dummy.** En `data/dummy/` hay 10 imágenes ruidosas (una por subdirectorio de clase) que sirven como *smoke-test* del pipeline sin requerir el dataset completo.
+**Datos dummy.** En `data/dummy/` se generan imágenes ruidosas (una por subdirectorio de clase) que sirven como *carga de stress* y *smoke-test* del pipeline sin requerir el dataset completo. El módulo dedicado `src/geoquant/data/dummy_generator.py` es responsable de producirlas dinámicamente (ver subsección siguiente).
 
-**Versionado.** `data/raw/` y `data/processed/` están bajo control de **DVC** con remoto en Google Drive (`dvc pull` para sincronizar). El `.gitignore` excluye explícitamente `data/raw/`, `data/processed/`, archivos `.zip`, `.tar.gz`, `.rec`, `.idx`, `.onnx` y `*.pth`.
+### Generador de datos dummy — `dummy_generator.py`
+
+Crea muestras ruidosas reproducibles a partir del split de CUB-200. Útil para **stress-tests de latencia/RAM** y para validar pipelines de inferencia sin cargar el dataset completo.
+
+**API pública**
+
+```python
+from geoquant.data.dummy_generator import generate_dummy_dataset, get_dummy_loader
+
+# 1) Generar imágenes ruidosas en data/dummy/{class_name}/{idx:06d}_noisy.png
+dummy_dir = generate_dummy_dataset(
+    config=config,
+    output_dir="data/dummy",
+    split="test",       # 'train' o 'test' del CUB-200 fuente
+    sigma=0.05,         # std del ruido gaussiano en espacio [0, 1]
+    n_images=500,       # tamaño del dataset dummy
+    force=False,        # True regenera aunque ya exista contenido
+)
+
+# 2) Construir un DataLoader con normalización ImageNet
+loader = get_dummy_loader(
+    dummy_dir,
+    image_size=224,
+    batch_size=32,
+    num_workers=0,
+)
+```
+
+**Pipeline**
+1. `ImageFolder` sobre `data/raw/cub200/{split}` con transform Resize→CenterCrop→ToTensor (sin normalizar).
+2. Se elige aleatoriamente `n_images` con `random.sample` (semilla global controlada por `seed_everything`).
+3. Para cada muestra: `noisy = clamp(tensor + N(0, sigma²), 0, 1)`.
+4. Guardado como PNG en `data/dummy/{class_name}/{orig_idx:06d}_noisy.png` (mantiene la etiqueta de clase del original).
+5. `get_dummy_loader` añade `Normalize(ImageNet)` al pipeline para inferencia equivalente a evaluación.
+
+> **Nota.** El ruido se aplica **antes** de la normalización ImageNet y se clipa a `[0, 1]` para mantener píxeles válidos. La regeneración se hace solo si la carpeta está vacía o si pasas `force=True`.
+
+**Versionado.** `data/raw/`, `data/processed/` y `data/dummy/` están excluidos del control de Git (`.gitignore`) — los datos crudos se versionan con **DVC** (Google Drive como remoto, `dvc pull` para sincronizar) y los dummy se regeneran localmente bajo demanda. El `.gitignore` también excluye `*.zip`, `*.tar.gz`, `*.rec`, `*.idx`, `*.onnx`, `*.pth` y la carpeta `outputs/`.
 
 ---
 
@@ -663,7 +707,104 @@ QAT        |     XX.XX      |   XX.XX    |    2.40
 
 ---
 
-## 15. Reportes (JSON / CSV / LaTeX)
+## 15. Stress benchmark: dummy data + FLOPs + peak RAM
+
+`scripts/stress_benchmark.py` lleva el benchmark un paso más allá: ejecuta los modelos contra un **dataset dummy ruidoso** (creado por `dummy_generator`) y agrega tres mediciones complementarias en una sola pasada — **latencia**, **peak RAM** durante un forward de varios batches y **FLOPs / parámetros**. Está diseñado como prueba de carga realista en CPU.
+
+### Componentes
+
+| Módulo                                              | Función                                  | Devuelve                                                                 |
+|-----------------------------------------------------|------------------------------------------|--------------------------------------------------------------------------|
+| `geoquant.data.dummy_generator.generate_dummy_dataset` | Crea/reutiliza imágenes dummy            | `Path` al directorio ImageFolder                                         |
+| `geoquant.data.dummy_generator.get_dummy_loader`     | DataLoader sobre las dummy               | `DataLoader` con `Normalize(ImageNet)`                                   |
+| `geoquant.evaluation.latency.measure_latency`        | Tiempo medio inferencia + disco          | `latency_ms`, `latency_std_ms`, `disk_mb`                                |
+| `geoquant.evaluation.flops_counter.count_flops`      | FLOPs y parámetros vía `thop.profile`    | `flops`, `params`, `flops_str` ("72.868M"), `params_str` ("1.521M")      |
+| `geoquant.evaluation.memory_profiler.measure_memory` | Peak RAM de Python/PyTorch (`tracemalloc`)| `peak_ram_mb`, `current_ram_mb`                                          |
+
+### `count_flops(model, image_size=224)` — `evaluation/flops_counter.py`
+
+- Pone el modelo en `eval()` y CPU.
+- Lanza un forward con `torch.randn(1, 3, image_size, image_size)`.
+- Usa `thop.profile(model, inputs=(dummy,), verbose=False)` y `clever_format` para devolver tanto los valores crudos como cadenas legibles ("72.868M").
+
+### `measure_memory(model, dataloader, n_batches=None)` — `evaluation/memory_profiler.py`
+
+- Activa `tracemalloc.start()` y procesa `n_batches` (o todo el loader) con `torch.no_grad()`.
+- Reporta el pico (`peak_ram_mb`) y la asignación viva al final (`current_ram_mb`).
+- **No usa CUDA** — pensado únicamente para benchmarks en CPU restringido.
+
+### Flujo del script
+
+```
+dummy_generator.generate_dummy_dataset()  →  data/dummy/{class}/*_noisy.png
+                                              │
+              dummy_generator.get_dummy_loader  ─┐
+                                                │
+       _load_model(config, ckpt) × {FP32,PTQ,QAT}│
+                                                ▼
+                          per modelo:
+                          ├─ count_flops(model, image_size)
+                          ├─ measure_latency(model, image_size, iterations)
+                          └─ measure_memory(model, dummy_loader, n_batches)
+                                                │
+                                                ▼
+                          tabla unificada por stdout
+```
+
+### Uso
+
+```bash
+# Benchmark completo de los tres modelos (genera/reusa data/dummy/)
+python scripts/stress_benchmark.py \
+  --fp32 outputs/checkpoints/baseline_fp32/best_fp32_finetuning_512d.pth \
+  --ptq  outputs/checkpoints/ptq/model_ptq_512d.pth \
+  --qat  outputs/checkpoints/qat/model_qat_512d.pth \
+  --iterations 100 \
+  --batch-size 32
+
+# Forzar regeneración del set dummy (1000 imágenes, ruido más fuerte)
+python scripts/stress_benchmark.py \
+  --fp32 <ckpt> --regenerate --n-dummy 1000 --sigma 0.1
+```
+
+### Argumentos completos del CLI
+
+| Flag             | Default                                              | Descripción                                                              |
+|------------------|------------------------------------------------------|--------------------------------------------------------------------------|
+| `--config`       | `configs/config.yaml`                                | Config base (lee `data.image_size`).                                     |
+| `--fp32`         | `outputs/checkpoints/baseline/best_fp32.pth`         | Checkpoint FP32 (obligatorio en la práctica).                            |
+| `--ptq`          | `None`                                               | Checkpoint PTQ (opcional).                                               |
+| `--qat`          | `None`                                               | Checkpoint QAT (opcional).                                               |
+| `--sigma`        | `0.05`                                               | Std del ruido gaussiano sobre la imagen normalizada en `[0, 1]`.         |
+| `--n-dummy`      | `500`                                                | Número de imágenes dummy a generar.                                      |
+| `--iterations`   | `100`                                                | Iteraciones de latencia (tras 10 de warmup).                             |
+| `--batch-size`   | `32`                                                 | Batch size para `measure_memory` (latencia es siempre batch=1).          |
+| `--dummy-dir`    | `data/dummy`                                         | Directorio de salida de las imágenes dummy.                              |
+| `--split`        | `test`                                               | Split del CUB-200 fuente (`train` o `test`).                             |
+| `--n-batches`    | `None`                                               | Limita los batches procesados en `measure_memory` (None = todos).        |
+| `--regenerate`   | `False`                                              | Fuerza recrear el set dummy aunque exista.                               |
+
+### Salida típica
+
+```
+===============================================================================================
+MÉTODO   | LATENCIA (ms)  | STD (ms)  | DISCO (MB)  | PEAK RAM (MB)  | FLOPs      | PARAMS
+===============================================================================================
+FP32     |     XX.XX      |   X.XX    |    9.50     |     XXX.XX     |   72.868M  | 1.521M
+PTQ      |     XX.XX      |   X.XX    |    2.40     |     XXX.XX     |   72.868M  | 1.521M
+QAT      |     XX.XX      |   X.XX    |    2.40     |     XXX.XX     |   72.868M  | 1.521M
+===============================================================================================
+
+Config stress: sigma=0.05 | n_dummy=500 | iterations=100 | batch_size=32
+```
+
+> **Nota sobre FLOPs.** `thop` cuenta operaciones **del grafo FP32 declarado** y por tanto reporta el mismo valor para los tres modelos: la diferencia operativa real entre INT8 y FP32 está en *throughput* y no en número de operaciones nominales. El valor de FLOPs es útil como referencia arquitectónica, no como predictor de latencia INT8.
+
+> **Nota sobre carga del modelo.** `_load_model` reconstruye el backbone FP32 y carga el `state_dict` con `weights_only=False` — equivalente al patrón de `benchmark.py`. Para mediciones INT8 *fieles* (no solo arquitectónicas) hay que pasar previamente por `prepare_fx`/`prepare_qat_fx` + `convert_fx` igual que en `embeddings.extract_and_save`.
+
+---
+
+## 16. Reportes (JSON / CSV / LaTeX)
 
 `src/geoquant/evaluation/reporter.py` serializa el dict de `EvaluationSuite` a tres formatos en paralelo:
 
@@ -677,7 +818,7 @@ QAT        |     XX.XX      |   XX.XX    |    2.40
 
 ---
 
-## 16. Scripts CLI
+## 17. Scripts CLI
 
 ### `scripts/train.py`
 
@@ -736,9 +877,21 @@ python scripts/benchmark.py \
 
 > **Nota.** Para los modelos cuantizados, `benchmark.py` actualmente reconstruye el backbone FP32 y carga el `state_dict` cuantizado en él, lo cual sirve como referencia de tamaño en disco; para latencia INT8 real, conviene cargar el modelo via `convert_fx` igual que en `embeddings.extract_and_save`.
 
+### `scripts/stress_benchmark.py`
+
+Variante de carga completa del benchmark — añade peak RAM y FLOPs y usa imágenes dummy generadas al vuelo. Ver [§15](#15-stress-benchmark-dummy-data--flops--peak-ram) para los argumentos completos y la salida.
+
+```bash
+python scripts/stress_benchmark.py \
+  --fp32 outputs/checkpoints/baseline_fp32/best_fp32_finetuning_512d.pth \
+  --ptq  outputs/checkpoints/ptq/model_ptq_512d.pth \
+  --qat  outputs/checkpoints/qat/model_qat_512d.pth \
+  --n-dummy 500 --sigma 0.05
+```
+
 ---
 
-## 17. Targets de Make
+## 18. Targets de Make
 
 ```bash
 make help           # Lista todos los targets
@@ -759,7 +912,7 @@ make clean          # rm -rf outputs/{checkpoints,results,logs} + __pycache__
 
 ---
 
-## 18. Notebooks
+## 19. Notebooks
 
 Los cuatro notebooks viven en `notebooks/` y exportan figuras a `notebooks/outputs/`:
 
@@ -774,7 +927,7 @@ Los embeddings cacheados en `outputs/embeddings/*.pt` se cargan directamente en 
 
 ---
 
-## 19. Tests
+## 20. Tests
 
 Configuración en `pyproject.toml`:
 
@@ -811,7 +964,7 @@ uv run pytest -k "block_a"       # solo bloque A
 
 ---
 
-## 20. Reproducibilidad
+## 21. Reproducibilidad
 
 `src/geoquant/utils/reproducibility.py:13`:
 
@@ -834,7 +987,7 @@ Esto se invoca al inicio de **todos** los scripts CLI con `config.get("seed", 42
 
 ---
 
-## 21. Outputs y artefactos generados
+## 22. Outputs y artefactos generados
 
 ```
 outputs/
@@ -868,7 +1021,7 @@ Donde `{D}` es la dimensión del embedding leída dinámicamente del modelo (tí
 
 ---
 
-## 22. Glosario de métricas
+## 23. Glosario de métricas
 
 | Métrica            | Bloque | Rango          | Mejor valor       | Significado                                                       |
 |--------------------|--------|----------------|-------------------|-------------------------------------------------------------------|
@@ -886,10 +1039,13 @@ Donde `{D}` es la dimensión del embedding leída dinámicamente del modelo (tí
 | **5-NN acc**       | val    | [0, 1]         | 1                 | Cohesión de clase por votación mayoritaria.                       |
 | **Latencia (ms)**  | bench  | (0, ∞)         | bajo              | Tiempo medio de inferencia (batch=1, CPU).                        |
 | **Disco (MB)**     | bench  | (0, ∞)         | bajo              | Tamaño del `state_dict` serializado.                              |
+| **Peak RAM (MB)**  | stress | (0, ∞)         | bajo              | Pico de memoria viva durante un forward sobre dummy data (`tracemalloc`). |
+| **FLOPs**          | stress | (0, ∞)         | bajo              | Operaciones del grafo FP32 declarado (`thop.profile`, batch=1).   |
+| **Params**         | stress | (0, ∞)         | bajo              | Número de parámetros entrenables del modelo.                      |
 
 ---
 
-## 23. Solución de problemas
+## 24. Solución de problemas
 
 **`FileNotFoundError: best_fp32_finetuning_512d.pth`**
 Hay que entrenar primero (`make train`). El script `quantize.py` busca primero `best_fp32_finetuning_{D}d.pth` y como fallback `best_fp32.pth`.
@@ -917,16 +1073,16 @@ El módulo `logging.py` y `embeddings.py` evitan flechas Unicode (`→`) y emoji
 
 ---
 
-## 24. Licencia y autoría
+## 25. Licencia y autoría
 
 - **Licencia.** MIT — ver `LICENSE`.
-- **Autor.** Manuel Stiven Castro Parra — *manuel.castro01@usa.edu.co*.
+- **Autor 1:** Manuel Stiven Castro Parra — *manuel.castro01@usa.edu.co*.
+- **Autor 2:** Andrés Mauricio Hurtado Macias — *andres.hurtado03@usa.edu.co*.
 - **Versión.** `0.2.0` (paquete `geoquant`, backend de build `hatchling`).
 - **Citación sugerida.**
 
   ```
-  Castro Parra, M. S. (2026). GeoQuant-MobileNet: Geometric & Topological
-  Embedding Analysis in MobileNetV3 under INT8 Quantization. v0.2.0.
+  Castro Parra, M. S. & Hurtado Macias, A. M. (2026). GeoQuant: El costo angular de la cuantización — Integridad geométrica vs. latencia INT8 en MobileNetV3. 
   ```
 
 ---
