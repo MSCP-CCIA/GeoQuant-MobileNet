@@ -28,10 +28,43 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def _load_model(config: dict, ckpt_path: str) -> torch.nn.Module:
+def _load_model(config, ckpt_path):
+    """Carga el modelo adaptando su arquitectura según sea FP32, PTQ o QAT."""
+    from geoquant.models.backbone import build_backbone
+    import torch
+
+    # 1. Construir el esqueleto original
     model = build_backbone(config)
-    model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
-    return model
+    ckpt_str = str(ckpt_path).lower()
+
+    # Si es el maestro de 32 bits, se carga directo
+    if "fp32" in ckpt_str:
+        model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
+        return model.eval()
+
+    # 2. Si es 8-bits (PTQ o QAT), preparamos el esqueleto FX primero
+    dummy_input = torch.randn(1, 3, 224, 224)
+    current_engine = torch.backends.quantized.engine
+
+    if "ptq" in ckpt_str:
+        from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
+        from torch.ao.quantization import get_default_qconfig_mapping
+
+        qconfig_mapping = get_default_qconfig_mapping(current_engine)
+        prepared_model = prepare_fx(model.eval(), qconfig_mapping, example_inputs=(dummy_input,))
+        eval_model = convert_fx(prepared_model)
+
+    else:  # QAT
+        from torch.ao.quantization.quantize_fx import prepare_qat_fx, convert_fx
+        from torch.ao.quantization import get_default_qat_qconfig_mapping
+
+        qconfig_mapping = get_default_qat_qconfig_mapping(current_engine)
+        prepared_model = prepare_qat_fx(model.train(), qconfig_mapping, example_inputs=(dummy_input,))
+        eval_model = convert_fx(prepared_model.eval())
+
+    # 3. Ahora sí, cargamos los pesos INT8 en el esqueleto adaptado
+    eval_model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=False))
+    return eval_model.eval()
 
 
 def main():
@@ -101,7 +134,7 @@ def main():
     print("\n" + "=" * 95)
     print(
         f"{'MÉTODO':<8} | {'LATENCIA (ms)':<14} | {'STD (ms)':<9} | "
-        f"{'DISCO (MB)':<11} | {'PEAK RAM (MB)':<14} | {'FLOPs':<10} | {'PARAMS'}"
+        f"{'DISCO (MB)':<11} | {'PEAK RAM (MB)':<14} | {'FLOPs':<10} "
     )
     print("=" * 95)
     for name, m in results.items():
@@ -111,7 +144,6 @@ def main():
             f"{m['disk_mb']:>9.2f}   | "
             f"{m['peak_ram_mb']:>12.2f}   | "
             f"{m['flops_str']:>10} | "
-            f"{m['params_str']}"
         )
     print("=" * 95)
     print(

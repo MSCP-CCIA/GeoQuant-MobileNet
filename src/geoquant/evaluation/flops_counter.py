@@ -36,7 +36,5 @@ def count_flops(model: torch.nn.Module, image_size: int = 224) -> dict:
 
     return {
         "flops": flops,
-        "params": params,
         "flops_str": flops_str,
-        "params_str": params_str,
     }
